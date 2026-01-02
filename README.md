@@ -10,13 +10,13 @@ optionally lists character traits from categorized lists.
 stable (no obvious bugs). three buttons; shuffle, traits, options. 
 
 shuffle: generate a new name, sans traits.  
-traits: generate a list of traits for the current name. it will generate at least one trait for each category. 
-options: toggle on/off different flavors of names, and choose how many traits to include. 
-name category basic: typical western given names like Mike and Susan and last names like Rutherford. 
-name category fantasy: more evocative names like Glade and Harp. 
-name category literary: more fanciful or recognizabale names from media, like Rembrandt. 
-name category goofy: silly-sounding names like Gloach and Frount. 
-trait category physical: describes appearance. 
+traits: generate a list of traits for the current name. it will generate at least one trait for each category.  
+options: toggle on/off different flavors of names, and choose how many traits to include.  
+name category basic: typical western given names like Mike and Susan and last names like Rutherford.  
+name category fantasy: more evocative names like Glade and Harp.  
+name category literary: more fanciful or recognizabale names from media, like Rembrandt.  
+name category goofy: silly-sounding names like Gloach and Frount.  
+trait category physical: describes appearance.  
 trait category personality: intrinsic traits that influence behavior. 
 trait category habits: things that the character habitually does. 
 trait category history: events in their life that could inform their worldview or connections. 
