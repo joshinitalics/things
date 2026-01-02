@@ -5,6 +5,12 @@ this is a goofy lil project for personal fun and amusement.
 generates a random name from a provided list. 
 optionally lists character traits from categorized lists. 
 
+## latest version: 7 
+
+more names and traits. 
+default trait density is Medium. 
+new trait category: ideals. these are values that the character holds, like "people should all get along" or "power is the most important thing". 
+
 ## latest version: 5
 
 stable (no obvious bugs). three buttons; shuffle, traits, options. 
