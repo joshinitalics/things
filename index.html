@@ -1,7 +1,86 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Landing Page</title>
+    <style>
+        /* Modern reset and layout */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
+        body {
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #121212;
+            
+            /* CSS-only texture: Subtle noise/grain effect */
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            background-blend-mode: overlay;
+            opacity: 0.98;
+
+            color: #b0b0b0; /* Light gray text */
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+
+        /* Container for content */
+        .content {
+            text-align: center;
+            z-index: 10;
+        }
+
+        /* Monospace Link Styling */
+        .nav-link {
+            color: #b0b0b0;
+            text-decoration: none;
+            font-size: 1.2rem;
+            letter-spacing: 0.05em;
+            padding: 12px 24px;
+            border: 1px solid #333;
+            background-color: rgba(30, 30, 30, 0.5);
+            transition: all 0.2s ease-in-out;
+            display: inline-block;
+        }
+
+        /* Interactive state */
+        .nav-link:hover {
+            background-color: #b0b0b0;
+            color: #121212;
+            border-color: #b0b0b0;
+            box-shadow: 0 0 15px rgba(176, 176, 176, 0.2);
+        }
+
+        /* Subtle scanline effect for additional texture */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                to bottom,
+                rgba(18, 16, 16, 0) 50%,
+                rgba(0, 0, 0, 0.1) 50%
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 1;
+        }
+    </style>
+</head>
 <body>
-<a href="names.html">Names generator</a>
-</body>
 
+    <div class="scanlines"></div>
+
+    <div class="content">
+        <a href="names.html" class="nav-link">names.html</a>
+    </div>
+
+</body>
 </html>
