@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>...</title>
+    <title>Navigation</title>
     <!-- Simple black circle favicon using inline SVG -->
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='black'/%3E%3C/svg%3E">
     <style>
@@ -34,8 +34,11 @@
             overflow: hidden;
         }
 
-        /* Content container */
+        /* Content container - set to flex column for vertical stacking */
         .content {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem; /* Space between the lines */
             text-align: center;
             z-index: 10;
         }
@@ -47,9 +50,8 @@
             font-size: 1.25rem;
             font-weight: 900; /* Extra bold */
             letter-spacing: 0.2em;
-            padding: 10px;
+            padding: 5px 10px;
             transition: color 0.4s ease, text-shadow 0.4s ease;
-            display: inline-block;
             text-transform: lowercase;
             
             /* Increased and darkened drop shadow layers for maximum depth */
@@ -87,15 +89,8 @@
 
     <div class="content">
         <a href="names.html" class="nav-link">names</a>
-    </div>
-
-    <div class="content">
         <a href="wotd.html" class="nav-link">wotd</a>
     </div>
 
 </body>
 </html>
-
-
-
-
