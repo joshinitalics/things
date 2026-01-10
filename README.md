@@ -1,4 +1,8 @@
-## simple character name & profile generator. 
+# Words of the Day generator 
+
+not working. initially tried getting it to read from external websited but can't get it working. oops. 
+
+# simple character name & profile generator. 
 made with Gemini 3 (Fast). 
 this is a goofy lil project for personal fun and amusement. 
 
