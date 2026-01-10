@@ -1,21 +1,21 @@
-# Words of the Day generator 
+## words of the day generator 
 
 not working. initially tried getting it to read from external websited but can't get it working. oops. 
 
-# simple character name & profile generator. 
+## simple character name & profile generator. 
 made with Gemini 3 (Fast). 
 this is a goofy lil project for personal fun and amusement. 
 
 generates a random name from a provided list. 
 optionally lists character traits from categorized lists. 
 
-## latest version: 7 
+### latest version: 7 
 
 more names and traits. 
 default trait density is Medium. 
 new trait category: ideals. these are values that the character holds, like "people should all get along" or "power is the most important thing". 
 
-## latest version: 5
+### latest version: 5
 
 stable (no obvious bugs). three buttons; shuffle, traits, options. 
 
