@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Daily Lexicon</title>
+    <title>wotd</title>
+    <!-- Favicon: Speech Bubble SVG -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💬</text></svg>">
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;600&display=swap');
@@ -65,19 +68,19 @@
 <body>
 
     <header class="text-center mb-16">
-        <h1 class="serif text-5xl font-bold mb-4 text-white tracking-tight">Daily Lexicon</h1>
+        <h1 class="serif text-5xl font-bold mb-4 text-white tracking-tight">Words of the Day</h1>
         <p id="current-date" class="text-gray-500 uppercase tracking-[0.3em] text-xs font-bold"></p>
     </header>
 
-    <div id="error-message" class="max-w-md mb-8 p-4 bg-red-900/20 border border-red-500/50 text-red-200 rounded-xl text-sm">
-        <p class="font-bold mb-1">Lexicon Load Failed</p>
-        <p class="opacity-80">Please ensure "lexicon.json" is present in your directory.</p>
+    <div id="error-message" class="max-w-md mb-8 p-4 bg-red-900/20 border border-red-500/50 text-red-200 rounded-xl text-sm text-center">
+        <p class="font-bold mb-1">Local File Access Restricted</p>
+        <p class="opacity-80">Using internal backup lexicon. Run via a local server to use lexicon.json.</p>
     </div>
 
     <main class="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl mb-16">
         <!-- Academic Word -->
         <section class="word-card p-10 rounded-3xl flex flex-col h-full shadow-2xl">
-            <span class="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-6">Academic Selection</span>
+            <span class="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-6">Academic</span>
             <div id="academic-container">
                 <h2 id="word-academic" class="serif text-4xl font-bold mb-3 text-white">...</h2>
                 <p id="pos-academic" class="italic text-blue-400/60 font-medium mb-6 text-sm">...</p>
@@ -93,7 +96,7 @@
 
         <!-- Literary Word -->
         <section class="word-card p-10 rounded-3xl flex flex-col h-full shadow-2xl">
-            <span class="text-[10px] font-black text-emerald-400 uppercase tracking-[0.2em] mb-6">Literary Selection</span>
+            <span class="text-[10px] font-black text-emerald-400 uppercase tracking-[0.2em] mb-6">Literary</span>
             <div id="literary-container">
                 <h2 id="word-literary" class="serif text-4xl font-bold mb-3 text-white">...</h2>
                 <p id="pos-literary" class="italic text-emerald-400/60 font-medium mb-6 text-sm">...</p>
@@ -109,7 +112,7 @@
 
         <!-- Whimsical Word -->
         <section class="word-card p-10 rounded-3xl flex flex-col h-full shadow-2xl">
-            <span class="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] mb-6">Whimsical Selection</span>
+            <span class="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] mb-6">Whimsical</span>
             <div id="whimsical-container">
                 <h2 id="word-whimsical" class="serif text-4xl font-bold mb-3 text-white">...</h2>
                 <p id="pos-whimsical" class="italic text-purple-400/60 font-medium mb-6 text-sm">...</p>
@@ -136,6 +139,21 @@
     </footer>
 
     <script>
+        const DEFAULT_LEXICON = {
+            "academic": [
+                { "word": "Epistemology", "pos": "noun", "definition": "The branch of philosophy that examines the nature, origin, and limits of human knowledge." },
+                { "word": "Paradigm", "pos": "noun", "definition": "A distinct set of concepts or thought patterns, including theories, research methods, and standards." }
+            ],
+            "literary": [
+                { "word": "Ineluctable", "pos": "adj.", "definition": "Unable to be resisted or avoided; inescapable." },
+                { "word": "Quixotic", "pos": "adj.", "definition": "Exceedingly idealistic; unrealistic and impractical." }
+            ],
+            "whimsical": [
+                { "word": "Ballyhoo", "pos": "noun", "definition": "Extravagant publicity or fuss." },
+                { "word": "Kerfuffle", "pos": "noun", "definition": "A commotion or fuss, especially one caused by conflicting views." }
+            ]
+        };
+
         let lexiconData = null;
         const categories = ['academic', 'literary', 'whimsical'];
 
@@ -154,13 +172,17 @@
 
             try {
                 const response = await fetch('lexicon.json');
-                if (!response.ok) throw new Error('Failed to load JSON');
+                if (!response.ok) throw new Error('Not found');
                 lexiconData = await response.json();
-                revertToToday();
+                console.log("Lexicon loaded successfully:", lexiconData);
             } catch (err) {
-                console.error(err);
-                document.getElementById('error-message').style.display = 'block';
+                console.warn("Could not load lexicon.json. Using fallback.");
+                lexiconData = DEFAULT_LEXICON;
+                if (window.location.protocol === 'file:') {
+                    document.getElementById('error-message').style.display = 'block';
+                }
             }
+            revertToToday();
         }
 
         function displayWord(category, index) {
@@ -169,9 +191,15 @@
             const safeIndex = index % list.length;
             const item = list[safeIndex];
 
-            document.getElementById(`word-${category}`).innerText = item.word;
-            document.getElementById(`pos-${category}`).innerText = item.pos;
-            document.getElementById(`def-${category}`).innerText = item.def;
+            // Debugging log to see what the item looks like in the console
+            console.log(`Displaying ${category}:`, item);
+
+            document.getElementById(`word-${category}`).innerText = item.word || "Unknown";
+            document.getElementById(`pos-${category}`).innerText = item.pos || "";
+            
+            // Fix for 'undefined' issue: Check multiple possible keys
+            const definition = item.definition || item.def || item.description || "Definition not found.";
+            document.getElementById(`def-${category}`).innerText = definition;
         }
 
         function revertToToday() {
