@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>fighter</title>
-    <!-- Favicon with crossed swords icon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22>⚔️</text></svg>">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -88,10 +87,10 @@
 
     <div id="instructions">
         <p><strong>P1 (Red):</strong> <span class="key-hint">S/T</span> L/R, <span class="key-hint">R/H</span> U/D, <span class="key-hint">Space</span> Jump</p>
-        <p><strong>Attacks:</strong> <span class="key-hint">N</span> Light, <span class="key-hint">E</span> Heavy</p>
+        <p><strong>Attacks:</strong> <span class="key-hint">N</span> Light, <span class="key-hint">E</span> Heavy, <span class="key-hint">O</span> Special</p>
         
         <label class="toggle-container">
-            <input type="checkbox" id="hitbox-toggle">
+            <input type="checkbox" id="hitbox-toggle" checked>
             <span>Show Hitboxes</span>
         </label>
     </div>
@@ -129,7 +128,7 @@
         let keys = {};
         let effects = []; 
         let globalHitstop = 0; 
-        let showHitboxes = false;
+        let showHitboxes = true;
 
         function init() {
             scene = new THREE.Scene();
@@ -161,7 +160,6 @@
             players.push(createPlayer(0xff3333, -5, "p1", false));
             players.push(createPlayer(0x3333ff, 5, "p2", true));
 
-            // Setup UI listeners
             document.getElementById('hitbox-toggle').addEventListener('change', (e) => {
                 showHitboxes = e.target.checked;
             });
@@ -170,13 +168,19 @@
                 const code = e.code;
                 players.forEach(p => {
                     if (p.isAI || globalHitstop > 0) return;
-                    if (code === 'Space' && p.hitstun <= 0) performJump(p, keys['KeyS'], keys['KeyT']);
-                    if ((code === 'KeyN' || code === 'KeyE') && !p.attacking && p.hitstun <= 0) {
+                    if (code === 'Space' && p.hitstun <= 0 && p.recoveryFrames <= 0) performJump(p, keys['KeyS'], keys['KeyT']);
+                    
+                    const isAttackKey = (code === 'KeyN' || code === 'KeyE' || code === 'KeyO');
+                    if (isAttackKey && !p.attacking && p.hitstun <= 0 && p.recoveryFrames <= 0) {
                         const dir = {
                             x: (keys['KeyT'] ? 1 : (keys['KeyS'] ? -1 : 0)),
                             y: (keys['KeyR'] ? 1 : (keys['KeyH'] ? -1 : 0))
                         };
-                        handleAttackInput(p, dir, code === 'KeyN' ? 'light' : 'heavy');
+                        let type = 'light';
+                        if (code === 'KeyE') type = 'heavy';
+                        if (code === 'KeyO') type = 'special';
+                        
+                        handleAttackInput(p, dir, type);
                     }
                 });
                 keys[code] = true;
@@ -221,6 +225,8 @@
                 percent: 0,
                 isGrounded: false,
                 jumpsUsed: 0,
+                specialUsed: false, 
+                recoveryFrames: 0, 
                 facing: (startX < 0 ? 1 : -1),
                 attacking: false,
                 currentAttack: null, 
@@ -233,11 +239,11 @@
 
         function performJump(p, moveLeft, moveRight) {
             if (p.isGrounded) {
-                p.velocity.y = 0.6; 
+                p.velocity.y = 0.51; 
                 p.isGrounded = false;
                 p.jumpsUsed = 1;
             } else if (p.jumpsUsed < 2) {
-                p.velocity.y = 0.55;
+                p.velocity.y = 0.47;
                 p.jumpsUsed = 2;
                 if (moveLeft) p.velocity.x = -0.15;
                 if (moveRight) p.velocity.x = 0.15;
@@ -258,30 +264,79 @@
                 offset: new THREE.Vector3(1.2, 0, 0), 
                 type: type,
                 hasHit: false,
-                visual: null
+                visuals: [], 
+                isMultiHitbox: false,
+                isRecoveryMove: false
             };
 
-            if (player.isGrounded) {
+            if (type === 'special') {
+                if (attackDirY === 1) {
+                    if (player.specialUsed) { player.attacking = false; return; }
+                    player.specialUsed = true;
+                    const horizontalShift = 0.28; 
+                    if (dir.x !== 0) {
+                        player.velocity.x = dir.x * horizontalShift;
+                        player.facing = dir.x;
+                    }
+                    player.velocity.y = 0.85; 
+                    attackConfig.startup = 50;
+                    attackConfig.damage = 8;
+                    attackConfig.knockback = 12;
+                    attackConfig.angle = 90;
+                    attackConfig.range = 2.4;
+                    attackConfig.offset.set(0, 0, 0);
+                    attackConfig.activeFrames = 8; 
+                    attackConfig.isRecoveryMove = true;
+                    player.recoveryFrames = 75; 
+                } else if (attackDirY === -1) {
+                    attackConfig.startup = 600; 
+                    attackConfig.damage = 18;
+                    attackConfig.knockback = 15;
+                    attackConfig.angle = 45;
+                    attackConfig.range = 0.64; 
+                    attackConfig.offset.set(0, 0, 0);
+                    attackConfig.activeFrames = 15;
+                    attackConfig.isMultiHitbox = true; 
+                    player.visualBody.scale.set(0.7, 0.7, 0.7); 
+                } else {
+                    attackConfig.startup = 120;
+                    attackConfig.damage = 2;
+                    attackConfig.knockback = 3;
+                    attackConfig.angle = 30;
+                    attackConfig.activeFrames = 12;
+                    attackConfig.isMultiHitbox = true;
+                }
+            } else if (player.isGrounded) {
                 if (type === 'light') {
                     attackConfig.startup = 50; 
                     attackConfig.damage = 3;
                     attackConfig.knockback = 5;
                     attackConfig.activeFrames = 8;
-                    if (attackDirY === 1) { attackConfig.angle = 80; attackConfig.offset.set(0, 1.8, 0); attackConfig.range = 1.8; }
-                    else if (attackDirY === -1) { attackConfig.angle = 45; attackConfig.offset.set(1.0, -0.6, 0); attackConfig.range = 1.8; }
-                    else { attackConfig.angle = 60; attackConfig.offset.set(1.2, 0, 0); attackConfig.range = 1.4; }
-                } else { 
-                    attackConfig.startup = 100;
-                    attackConfig.damage = 12;
-                    attackConfig.knockback = 6; 
-                    attackConfig.activeFrames = 15;
                     if (attackDirY === 1) { 
-                        attackConfig.angle = 60; 
-                        attackConfig.offset.set(0, 2.2, 0); 
-                        attackConfig.range = 2.0; 
+                        attackConfig.knockback = 5;
+                        attackConfig.angle = 80; 
+                        attackConfig.offset.set(0, 1.2, 0); 
+                        attackConfig.range = 1.2;          
                     }
-                    else if (attackDirY === -1) { attackConfig.startup = 150; attackConfig.angle = 45; attackConfig.offset.set(1.2, -0.6, 0); attackConfig.range = 1.8; }
-                    else { attackConfig.angle = 45; attackConfig.offset.set(1.6, 0, 0); attackConfig.range = 2.2; }
+                    else if (attackDirY === -1) { 
+                        attackConfig.angle = 30; 
+                        attackConfig.knockback = 4;
+                        attackConfig.offset.set(1.0, -0.6, 0); 
+                        attackConfig.range = 1.8; 
+                    }
+                    else { 
+                        attackConfig.angle = 60; 
+                        attackConfig.offset.set(1.2, 0, 0); 
+                        attackConfig.range = 1.4; 
+                    }
+                } else { 
+                    attackConfig.startup = 250;
+                    attackConfig.damage = 14;
+                    attackConfig.knockback = 7; 
+                    attackConfig.activeFrames = 18;
+                    if (attackDirY === 1) { attackConfig.angle = 60; attackConfig.offset.set(0, 1.8, 0); attackConfig.range = 1.6; }
+                    else if (attackDirY === -1) { attackConfig.startup = 320; attackConfig.angle = 45; attackConfig.offset.set(1.0, -0.6, 0); attackConfig.range = 1.5; }
+                    else { attackConfig.angle = 45; attackConfig.offset.set(1.4, 0, 0); attackConfig.range = 1.7; }
                 }
             } else {
                 attackConfig.type = 'light';
@@ -289,47 +344,78 @@
                 attackConfig.startup = 40;
                 attackConfig.damage = 4;
                 attackConfig.knockback = 4;
-                if (attackDirY === -1) { 
+                if (attackDirY === 1) {
+                    attackConfig.startup = 60;
+                    attackConfig.damage = 11;
+                    attackConfig.knockback = 5;
+                    attackConfig.angle = 90;
+                    attackConfig.offset.set(0, 0.8, 0); 
+                    attackConfig.range = 1.2;          
+                    attackConfig.activeFrames = 8;     
+                } else if (attackDirY === -1) { 
                     attackConfig.angle = 30; 
                     attackConfig.knockback = 2; 
-                    attackConfig.offset.set(0, -1.8, 0); 
-                    attackConfig.range = 1.8; 
+                    attackConfig.offset.set(0, -1.2, 0); 
+                    attackConfig.range = 1.4; 
                 } else { 
-                    attackConfig.angle = 60;
+                    attackConfig.angle = 60; 
                     attackConfig.offset.set(0.8, 0, 0); 
                     attackConfig.range = 1.5; 
                 }
             }
 
-            if (type === 'light' || !player.isGrounded) player.visualBody.scale.set(0.9, 1.1, 0.9);
-            else player.visualBody.scale.set(0.8, 1.2, 0.8);
+            if (type !== 'special') {
+                if (type === 'light' || !player.isGrounded) player.visualBody.scale.set(0.9, 1.1, 0.9);
+                else player.visualBody.scale.set(0.75, 1.3, 0.75);
+            }
 
             setTimeout(() => {
                 if (player.hitstun > 0 || globalHitstop > 0) return;
                 player.visualBody.scale.set(1, 1, 1);
-                
                 const isHeavyGround = (type === 'heavy' && player.isGrounded);
-                const hitColor = isHeavyGround ? 0xff0000 : 0xffff00;
-                const geo = new THREE.SphereGeometry(attackConfig.range, 16, 16);
-                const mat = new THREE.MeshBasicMaterial({ 
-                    color: hitColor, 
-                    transparent: true, 
-                    opacity: showHitboxes ? 0.4 : 0.0,
-                    depthWrite: false
-                });
-                const visualMesh = new THREE.Mesh(geo, mat);
+                const isSpecial = (type === 'special');
+                const hitColor = isSpecial ? 0x00ff88 : (isHeavyGround ? 0xff0000 : 0xffff00);
                 
-                visualMesh.position.set(attackConfig.offset.x * player.facing, attackConfig.offset.y, attackConfig.offset.z);
-                
-                player.hitboxContainer.add(visualMesh);
-                attackConfig.visual = visualMesh;
+                if (attackConfig.isMultiHitbox) {
+                    if (type === 'special' && attackDirY === -1) {
+                        const sideOffsets = [0, -1.5, -3.0, 1.5, 3.0];
+                        sideOffsets.forEach(xOffset => {
+                            const bSize = attackConfig.range;
+                            const geo = new THREE.SphereGeometry(bSize, 12, 12);
+                            const mat = new THREE.MeshBasicMaterial({ color: hitColor, transparent: true, opacity: showHitboxes ? 0.4 : 0.0, depthWrite: false });
+                            const bubble = new THREE.Mesh(geo, mat);
+                            bubble.userData = { range: bSize };
+                            bubble.position.set(xOffset, -0.8, 0);
+                            player.hitboxContainer.add(bubble);
+                            attackConfig.visuals.push(bubble);
+                        });
+                    } else {
+                        for (let i = 0; i < 6; i++) {
+                            const bSize = 0.45;
+                            const geo = new THREE.SphereGeometry(bSize, 8, 8);
+                            const mat = new THREE.MeshBasicMaterial({ color: hitColor, transparent: true, opacity: showHitboxes ? 0.4 : 0.0, depthWrite: false });
+                            const bubble = new THREE.Mesh(geo, mat);
+                            bubble.userData = { range: bSize };
+                            bubble.position.set((1.5 + i * 1.4) * player.facing, 0, 0);
+                            player.hitboxContainer.add(bubble);
+                            attackConfig.visuals.push(bubble);
+                        }
+                    }
+                } else {
+                    const geo = new THREE.SphereGeometry(attackConfig.range, 16, 16);
+                    const mat = new THREE.MeshBasicMaterial({ color: hitColor, transparent: true, opacity: showHitboxes ? 0.4 : 0.0, depthWrite: false });
+                    const visualMesh = new THREE.Mesh(geo, mat);
+                    visualMesh.position.set(attackConfig.offset.x * player.facing, attackConfig.offset.y, attackConfig.offset.z);
+                    player.hitboxContainer.add(visualMesh);
+                    attackConfig.visuals.push(visualMesh);
+                }
                 player.currentAttack = attackConfig;
             }, attackConfig.startup);
         }
 
         function clearAttack(player) {
-            if (player.currentAttack && player.currentAttack.visual) {
-                player.hitboxContainer.remove(player.currentAttack.visual);
+            if (player.currentAttack) {
+                player.currentAttack.visuals.forEach(v => player.hitboxContainer.remove(v));
             }
             player.attacking = false;
             player.currentAttack = null;
@@ -337,62 +423,46 @@
         }
 
         const worldHitboxPos = new THREE.Vector3();
-
         function checkHit(player, config) {
-            if (!config || config.hasHit || !config.visual) return;
+            if (!config || config.hasHit || config.visuals.length === 0) return;
             const opponent = players.find(p => p !== player);
-            config.visual.getWorldPosition(worldHitboxPos);
+            const minX = opponent.pos.x - 0.6, maxX = opponent.pos.x + 0.6;
+            const minY = opponent.pos.y - 0.9, maxY = opponent.pos.y + 0.9;
 
-            const minX = opponent.pos.x - 0.6;
-            const maxX = opponent.pos.x + 0.6;
-            const minY = opponent.pos.y - 0.9;
-            const maxY = opponent.pos.y + 0.9;
-
-            const closestX = Math.max(minX, Math.min(worldHitboxPos.x, maxX));
-            const closestY = Math.max(minY, Math.min(worldHitboxPos.y, maxY));
-            const dx = worldHitboxPos.x - closestX;
-            const dy = worldHitboxPos.y - closestY;
-
-            const squaredDistance = dx * dx + dy * dy;
-            const inRange = squaredDistance < (config.range * config.range);
-
-            if (inRange && opponent.hitstun <= 0) {
-                config.hasHit = true; 
-                const kbDir = opponent.pos.x - player.pos.x > 0 ? 1 : -1;
-                
-                const pctFactor = Math.min(1, opponent.percent / 100);
-                let hitstopFrames = 0;
-                if (config.type === 'light') {
-                    hitstopFrames = 2 + Math.floor(8 * pctFactor);
-                } else {
-                    hitstopFrames = 8 + Math.floor(12 * pctFactor);
-                }
-                
-                globalHitstop = hitstopFrames;
-                applyHit(opponent, kbDir, config);
-                if (showHitboxes) {
-                    config.visual.material.opacity = 0.8;
+            for (const visual of config.visuals) {
+                visual.getWorldPosition(worldHitboxPos);
+                const currentRange = config.isMultiHitbox ? visual.userData.range : config.range;
+                const closestX = Math.max(minX, Math.min(worldHitboxPos.x, maxX));
+                const closestY = Math.max(minY, Math.min(worldHitboxPos.y, maxY));
+                const dx = worldHitboxPos.x - closestX, dy = worldHitboxPos.y - closestY;
+                if ((dx * dx + dy * dy) < (currentRange * currentRange) && opponent.hitstun <= 0) {
+                    config.hasHit = true; 
+                    const kbDir = opponent.pos.x - player.pos.x > 0 ? 1 : -1;
+                    const pctFactor = Math.min(1, opponent.percent / 100);
+                    globalHitstop = (config.type === 'light') ? 2 + Math.floor(8 * pctFactor) : 10 + Math.floor(15 * pctFactor);
+                    applyHit(opponent, kbDir, config);
+                    if (showHitboxes) config.visuals.forEach(v => v.material.opacity = 0.8);
+                    break; 
                 }
             }
         }
 
         function applyHit(victim, xDir, config) {
             victim.percent += config.damage;
-            document.getElementById(`${victim.id}-percent`).innerText = victim.percent + "%";
+            const percentEl = document.getElementById(`${victim.id}-percent`);
+            if (percentEl) percentEl.innerText = victim.percent + "%";
             const rad = config.angle * (Math.PI / 180);
-            const forceMultiplier = 1.0 + (victim.percent * 0.012);
+            const knockbackScaling = config.type === 'special' ? 0.004 : 0.012;
+            const forceMultiplier = 1.0 + (victim.percent * knockbackScaling);
             const totalForce = config.knockback * KB_COEFFICIENT * forceMultiplier;
-            
             victim.velocity.x = Math.cos(rad) * xDir * totalForce * 6;
             victim.velocity.y = Math.sin(rad) * totalForce * 6;
-
-            const baseHitstun = config.type === 'heavy' ? 10 : 5;
+            const baseHitstun = (config.type === 'heavy' || config.type === 'special') ? 12 : 5;
             victim.hitstun = Math.min(60, baseHitstun + (victim.percent * 0.08));
             victim.hitstunMax = victim.hitstun;
-            
             victim.isGrounded = false;
+            victim.recoveryFrames = 0; 
             if (victim.attacking) clearAttack(victim);
-            
             victim.visualBody.children[0].material.emissive.setHex(0xffffff);
             setTimeout(() => victim.visualBody.children[0].material.emissive.setHex(0x000000), 100);
         }
@@ -417,140 +487,72 @@
 
         function handleInput() {
             if (globalHitstop > 0) return;
-
             players.forEach(p => {
+                if (p.attacking && p.currentAttack && p.currentAttack.type === 'special' && p.currentAttack.startup > 200) return;
                 if (p.attacking && p.isGrounded) return;
-
-                let moveLeft = false;
-                let moveRight = false;
-
-                if (p.isAI) {
-                    const halfW = STAGE_WIDTH / 2;
-                    if (p.pos.x > halfW) {
-                        moveLeft = true;
-                        if (p.pos.y < 5 && p.velocity.y < 0 && p.jumpsUsed < 2 && p.hitstun <= 0) performJump(p, true, false);
-                    } else if (p.pos.x < -halfW) {
-                        moveRight = true;
-                        if (p.pos.y < 5 && p.velocity.y < 0 && p.jumpsUsed < 2 && p.hitstun <= 0) performJump(p, false, true);
-                    } else {
-                        moveLeft = p.pos.x > 2;
-                        moveRight = p.pos.x < -2;
-                    }
-                } else {
-                    moveLeft = keys['KeyS'];
-                    moveRight = keys['KeyT'];
-                }
-
+                if (p.recoveryFrames > 0) return; 
+                let moveLeft = p.isAI ? (p.pos.x > (STAGE_WIDTH/2) || p.pos.x > 2) : keys['KeyS'];
+                let moveRight = p.isAI ? (p.pos.x < -(STAGE_WIDTH/2) || p.pos.x < -2) : keys['KeyT'];
                 let accel = p.isGrounded ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR;
                 let max = p.isGrounded ? MAX_WALK_SPEED : MAX_AIR_CONTROL;
-
                 if (p.hitstun > 0) {
                     const elapsed = p.hitstunMax - p.hitstun;
-                    if (elapsed < HITSTUN_LOCKOUT) {
-                        accel = 0; 
-                        max = 0;
-                    } else {
-                        accel *= HITSTUN_CONTROL_MULT;
-                        max *= HITSTUN_CONTROL_MULT;
-                    }
+                    if (elapsed < HITSTUN_LOCKOUT) { accel = 0; max = 0; }
+                    else { accel *= HITSTUN_CONTROL_MULT; max *= HITSTUN_CONTROL_MULT; }
                 }
-
                 if (moveLeft) { p.velocity.x -= accel; p.facing = -1; }
                 if (moveRight) { p.velocity.x += accel; p.facing = 1; }
-
-                if (Math.abs(p.velocity.x) > max && p.hitstun <= 0) {
-                    p.velocity.x = THREE.MathUtils.lerp(p.velocity.x, Math.sign(p.velocity.x) * max, 0.2);
-                }
+                if (Math.abs(p.velocity.x) > max && p.hitstun <= 0) p.velocity.x = THREE.MathUtils.lerp(p.velocity.x, Math.sign(p.velocity.x) * max, 0.2);
             });
         }
 
         function updatePhysics(dt) {
             effects = effects.filter(fx => fx.update(dt));
-
             if (globalHitstop > 0) {
                 globalHitstop--;
-                players.forEach(p => {
-                    if (p.hitstun > 0 || (p.currentAttack && p.currentAttack.hasHit)) {
-                        p.visualBody.position.set(
-                            (Math.random() - 0.5) * 0.3,
-                            (Math.random() - 0.5) * 0.3,
-                            0
-                        );
-                    }
-                });
+                players.forEach(p => { if (p.hitstun > 0 || (p.currentAttack && p.currentAttack.hasHit)) p.visualBody.position.set((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, 0); });
                 return;
             }
-
             players.forEach(p => {
                 p.visualBody.position.set(0, 0, 0);
-
+                if (p.recoveryFrames > 0) { p.recoveryFrames--; p.visualBody.scale.set(0.95, 0.9, 0.95); }
+                else if (!p.attacking) { p.visualBody.scale.set(1, 1, 1); }
                 if (p.currentAttack) {
                     checkHit(p, p.currentAttack);
                     p.currentAttack.activeFrames--;
-                    
-                    if (p.currentAttack.visual) {
-                        if (showHitboxes) {
-                            p.currentAttack.visual.material.opacity = Math.max(0.1, p.currentAttack.visual.material.opacity * 0.95);
-                        } else {
-                            p.currentAttack.visual.material.opacity = 0;
-                        }
-                    }
-
+                    p.currentAttack.visuals.forEach(v => v.material.opacity = showHitboxes ? Math.max(0.1, v.material.opacity * 0.95) : 0);
                     if (p.currentAttack.activeFrames <= 0) clearAttack(p);
                 }
-
                 if (p.hitstun > 0) p.hitstun--;
-                else p.hitstunMax = 0;
-
                 p.velocity.y = Math.max(TERMINAL_VELOCITY, p.velocity.y + GRAVITY);
                 p.pos.add(p.velocity);
                 p.velocity.x *= p.isGrounded ? GROUND_FRICTION : AIR_FRICTION;
-
                 const halfW = STAGE_WIDTH / 2;
-                if (p.pos.x > -halfW - 0.6 && p.pos.x < halfW + 0.6) {
-                    if (p.pos.y <= 1 + (p.height / 2) && p.pos.y > 0 && p.velocity.y < 0) {
-                        p.pos.y = 1 + (p.height/2);
-                        p.velocity.y = 0;
-                        if (!p.isGrounded) { p.isGrounded = true; p.jumpsUsed = 0; }
-                    }
-                } else p.isGrounded = false;
-
-                if (Math.abs(p.pos.x) > BLAST_ZONE_X || Math.abs(p.pos.y) > BLAST_ZONE_Y) {
-                    createKOEffect(p.pos.clone(), p.color);
-                    respawn(p);
-                }
-
+                if (Math.abs(p.pos.x) < halfW + 0.6) {
+                    const groundLevel = 1 + (p.height / 2);
+                    if (p.pos.y <= groundLevel && p.pos.y > 0 && p.velocity.y <= 0) {
+                        p.pos.y = groundLevel; p.velocity.y = 0;
+                        if (!p.isGrounded) { p.isGrounded = true; p.jumpsUsed = 0; p.specialUsed = false; if (p.recoveryFrames > 0) p.recoveryFrames = Math.max(p.recoveryFrames, 25); }
+                    } else if (p.pos.y > groundLevel + 0.1) { p.isGrounded = false; }
+                } else { p.isGrounded = false; }
+                if (Math.abs(p.pos.x) > BLAST_ZONE_X || Math.abs(p.pos.y) > BLAST_ZONE_Y) { createKOEffect(p.pos.clone(), p.color); respawn(p); }
                 p.mesh.position.copy(p.pos);
-                const targetRot = p.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
-                p.visualBody.rotation.y = THREE.MathUtils.lerp(p.visualBody.rotation.y, targetRot, 0.2);
+                p.visualBody.rotation.y = THREE.MathUtils.lerp(p.visualBody.rotation.y, p.facing === 1 ? Math.PI/2 : -Math.PI/2, 0.2);
             });
         }
 
         function respawn(player) {
             player.pos.set(player.id === 'p1' ? -5 : 5, 12, 0);
             player.velocity.set(0, 0, 0);
-            player.percent = 0;
-            player.hitstun = 0;
-            player.hitstunMax = 0;
-            player.jumpsUsed = 0;
+            player.percent = 0; player.hitstun = 0; player.hitstunMax = 0;
+            player.jumpsUsed = 0; player.specialUsed = false; player.recoveryFrames = 0;
             if (player.attacking) clearAttack(player);
             document.getElementById(`${player.id}-percent`).innerText = "0%";
         }
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
+        function onWindowResize() { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
         const clock = new THREE.Clock();
-        function animate() {
-            requestAnimationFrame(animate);
-            handleInput();
-            updatePhysics(clock.getDelta());
-            renderer.render(scene, camera);
-        }
-
+        function animate() { requestAnimationFrame(animate); handleInput(); updatePhysics(clock.getDelta()); renderer.render(scene, camera); }
         init();
     </script>
 </body>
