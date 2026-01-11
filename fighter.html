@@ -90,7 +90,7 @@
         <p><strong>Attacks:</strong> <span class="key-hint">N</span> Light, <span class="key-hint">E</span> Heavy, <span class="key-hint">O</span> Special</p>
         
         <label class="toggle-container">
-            <input type="checkbox" id="hitbox-toggle" checked>
+            <input type="checkbox" id="hitbox-toggle">
             <span>Show Hitboxes</span>
         </label>
     </div>
@@ -128,7 +128,9 @@
         let keys = {};
         let effects = []; 
         let globalHitstop = 0; 
-        let showHitboxes = true;
+        let showHitboxes = false; // Set hitboxes to off by default
+
+        const DOWN_SPECIAL_SQUASH = new THREE.Vector3(1.6, 0.35, 1.6);
 
         function init() {
             scene = new THREE.Scene();
@@ -194,7 +196,15 @@
 
         function createPlayer(color, startX, id, isAI) {
             const group = new THREE.Group();
+            
+            const visualPivot = new THREE.Group();
+            visualPivot.position.y = -0.9; 
+            group.add(visualPivot);
+
             const visualBody = new THREE.Group();
+            visualBody.position.y = 0.9; 
+            visualPivot.add(visualBody);
+
             const bodyGeo = new THREE.BoxGeometry(1.2, 1.8, 1.2);
             const bodyMat = new THREE.MeshPhongMaterial({ color: color });
             const body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -206,7 +216,6 @@
             const eyes = new THREE.Mesh(eyeGeo, eyeMat);
             eyes.position.set(0, 0.4, 0.61);
             visualBody.add(eyes);
-            group.add(visualBody);
 
             const hitboxContainer = new THREE.Group();
             group.add(hitboxContainer);
@@ -217,7 +226,10 @@
                 id: id,
                 isAI: isAI,
                 mesh: group,
+                visualPivot: visualPivot, 
                 visualBody: visualBody,
+                bodyMesh: body,
+                baseColor: new THREE.Color(color),
                 hitboxContainer: hitboxContainer,
                 color: color,
                 velocity: new THREE.Vector3(),
@@ -227,8 +239,11 @@
                 jumpsUsed: 0,
                 specialUsed: false, 
                 recoveryFrames: 0, 
+                inFreefall: false, 
+                heavyLanding: false, 
                 facing: (startX < 0 ? 1 : -1),
                 attacking: false,
+                attackSubtype: null,
                 currentAttack: null, 
                 hitstun: 0,
                 hitstunMax: 0, 
@@ -250,6 +265,91 @@
             }
         }
 
+        function spawnFlameParticle(player) {
+            const geo = new THREE.SphereGeometry(0.6, 8, 8);
+            const mat = new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.8 });
+            const flame = new THREE.Mesh(geo, mat);
+            flame.position.copy(player.pos).add(new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5));
+            scene.add(flame);
+            effects.push({
+                mesh: flame, life: 1.0, 
+                update: function(dt) {
+                    this.life -= dt * 2.5;
+                    this.mesh.scale.setScalar(this.life * 2.0);
+                    this.mesh.position.y += 0.05;
+                    this.mesh.material.opacity = this.life;
+                    if (this.life <= 0) { scene.remove(this.mesh); return false; }
+                    return true;
+                }
+            });
+        }
+
+        function createSpecialVFX(type, player) {
+            if (type === 'neutral') {
+                for (let i = 0; i < 6; i++) {
+                    const points = [];
+                    let lastPt = new THREE.Vector3(0, 0, 0);
+                    points.push(lastPt.clone());
+                    for (let j = 1; j < 8; j++) {
+                        lastPt = new THREE.Vector3(
+                            j * player.facing * 1.3, 
+                            (Math.random() - 0.5) * 1.8,
+                            (Math.random() - 0.5) * 1
+                        );
+                        points.push(lastPt.clone());
+                    }
+                    const geo = new THREE.BufferGeometry().setFromPoints(points);
+                    const mat = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 1.0 });
+                    const line = new THREE.Line(geo, mat);
+                    player.mesh.add(line);
+                    effects.push({
+                        mesh: line, life: 1.0, update: function(dt) {
+                            this.life -= dt * 4.5;
+                            this.mesh.material.opacity = this.life;
+                            if (this.life <= 0) { player.mesh.remove(this.mesh); return false; }
+                            return true;
+                        }
+                    });
+                }
+            } else if (type === 'down') {
+                for (let i = 0; i < 12; i++) {
+                    const geo = new THREE.IcosahedronGeometry(Math.random() * 0.4 + 0.2, 0);
+                    const mat = new THREE.MeshPhongMaterial({ color: 0x665544 });
+                    const rock = new THREE.Mesh(geo, mat);
+                    rock.position.set(
+                        player.pos.x + (Math.random() - 0.5) * 6,
+                        player.pos.y - 1,
+                        (Math.random() - 0.5) * 2
+                    );
+                    scene.add(rock);
+                    effects.push({
+                        mesh: rock, life: 1.0,
+                        vel: new THREE.Vector3((Math.random() - 0.5) * 0.1, 0.15 + Math.random() * 0.25, (Math.random() - 0.5) * 0.1),
+                        update: function(dt) {
+                            this.life -= dt * 2.5;
+                            this.mesh.position.add(this.vel);
+                            this.vel.y -= 0.02;
+                            this.mesh.rotation.x += 0.2;
+                            this.mesh.scale.setScalar(this.life);
+                            if (this.life <= 0) { scene.remove(this.mesh); return false; }
+                            return true;
+                        }
+                    });
+                }
+            } else if (type === 'up') {
+                let spawnCount = 0;
+                const totalSpawns = 8;
+                const interval = setInterval(() => {
+                    if (spawnCount >= totalSpawns) {
+                        clearInterval(interval);
+                        return;
+                    }
+                    spawnFlameParticle(player);
+                    spawnCount++;
+                }, 40);
+            }
+        }
+
         function handleAttackInput(player, dir, type) {
             player.attacking = true;
             const attackDirY = dir.y;
@@ -263,6 +363,7 @@
                 angle: 60,
                 offset: new THREE.Vector3(1.2, 0, 0), 
                 type: type,
+                subtype: 'normal',
                 hasHit: false,
                 visuals: [], 
                 isMultiHitbox: false,
@@ -273,22 +374,35 @@
                 if (attackDirY === 1) {
                     if (player.specialUsed) { player.attacking = false; return; }
                     player.specialUsed = true;
-                    const horizontalShift = 0.28; 
-                    if (dir.x !== 0) {
-                        player.velocity.x = dir.x * horizontalShift;
-                        player.facing = dir.x;
-                    }
-                    player.velocity.y = 0.85; 
-                    attackConfig.startup = 50;
+                    player.inFreefall = true; 
+                    
+                    // Delay the flight and VFX for the startup
+                    attackConfig.startup = 200; // Increased startup from 50 to 200
                     attackConfig.damage = 8;
                     attackConfig.knockback = 12;
                     attackConfig.angle = 90;
                     attackConfig.range = 2.4;
                     attackConfig.offset.set(0, 0, 0);
-                    attackConfig.activeFrames = 8; 
+                    attackConfig.activeFrames = 15;
                     attackConfig.isRecoveryMove = true;
-                    player.recoveryFrames = 75; 
+                    player.recoveryFrames = 80; 
+
+                    // Store movement intent for when startup finishes
+                    const moveX = dir.x;
+                    setTimeout(() => {
+                        if (player.hitstun > 0 || globalHitstop > 0) return;
+                        createSpecialVFX('up', player);
+                        const horizontalShift = 0.28; 
+                        if (moveX !== 0) {
+                            player.velocity.x = moveX * horizontalShift;
+                            player.facing = moveX;
+                        }
+                        player.velocity.y = 0.85; 
+                    }, attackConfig.startup);
+
                 } else if (attackDirY === -1) {
+                    attackConfig.subtype = 'down-special';
+                    player.attackSubtype = 'down-special';
                     attackConfig.startup = 600; 
                     attackConfig.damage = 18;
                     attackConfig.knockback = 15;
@@ -297,7 +411,8 @@
                     attackConfig.offset.set(0, 0, 0);
                     attackConfig.activeFrames = 15;
                     attackConfig.isMultiHitbox = true; 
-                    player.visualBody.scale.set(0.7, 0.7, 0.7); 
+                    // Immediately squash
+                    player.visualPivot.scale.copy(DOWN_SPECIAL_SQUASH); 
                 } else {
                     attackConfig.startup = 120;
                     attackConfig.damage = 2;
@@ -308,74 +423,46 @@
                 }
             } else if (player.isGrounded) {
                 if (type === 'light') {
-                    attackConfig.startup = 50; 
-                    attackConfig.damage = 3;
-                    attackConfig.knockback = 5;
-                    attackConfig.activeFrames = 8;
-                    if (attackDirY === 1) { 
-                        attackConfig.knockback = 5;
-                        attackConfig.angle = 80; 
-                        attackConfig.offset.set(0, 1.2, 0); 
-                        attackConfig.range = 1.2;          
-                    }
-                    else if (attackDirY === -1) { 
-                        attackConfig.angle = 30; 
-                        attackConfig.knockback = 4;
-                        attackConfig.offset.set(1.0, -0.6, 0); 
-                        attackConfig.range = 1.8; 
-                    }
-                    else { 
-                        attackConfig.angle = 60; 
-                        attackConfig.offset.set(1.2, 0, 0); 
-                        attackConfig.range = 1.4; 
-                    }
+                    attackConfig.startup = 50; attackConfig.damage = 3; attackConfig.knockback = 5; attackConfig.activeFrames = 8;
+                    if (attackDirY === 1) { attackConfig.angle = 80; attackConfig.offset.set(0, 1.2, 0); attackConfig.range = 1.2; }
+                    else if (attackDirY === -1) { attackConfig.angle = 30; attackConfig.offset.set(1.0, -0.6, 0); attackConfig.range = 1.8; }
+                    else { attackConfig.angle = 60; attackConfig.offset.set(1.2, 0, 0); attackConfig.range = 1.4; }
                 } else { 
-                    attackConfig.startup = 250;
-                    attackConfig.damage = 14;
-                    attackConfig.knockback = 7; 
-                    attackConfig.activeFrames = 18;
+                    attackConfig.startup = 250; attackConfig.damage = 14; attackConfig.knockback = 7; attackConfig.activeFrames = 18;
                     if (attackDirY === 1) { attackConfig.angle = 60; attackConfig.offset.set(0, 1.8, 0); attackConfig.range = 1.6; }
                     else if (attackDirY === -1) { attackConfig.startup = 320; attackConfig.angle = 45; attackConfig.offset.set(1.0, -0.6, 0); attackConfig.range = 1.5; }
                     else { attackConfig.angle = 45; attackConfig.offset.set(1.4, 0, 0); attackConfig.range = 1.7; }
                 }
             } else {
-                attackConfig.type = 'light';
-                attackConfig.activeFrames = 12;
-                attackConfig.startup = 40;
-                attackConfig.damage = 4;
-                attackConfig.knockback = 4;
-                if (attackDirY === 1) {
-                    attackConfig.startup = 60;
-                    attackConfig.damage = 11;
-                    attackConfig.knockback = 5;
-                    attackConfig.angle = 90;
-                    attackConfig.offset.set(0, 0.8, 0); 
-                    attackConfig.range = 1.2;          
-                    attackConfig.activeFrames = 8;     
-                } else if (attackDirY === -1) { 
-                    attackConfig.angle = 30; 
-                    attackConfig.knockback = 2; 
-                    attackConfig.offset.set(0, -1.2, 0); 
-                    attackConfig.range = 1.4; 
-                } else { 
-                    attackConfig.angle = 60; 
-                    attackConfig.offset.set(0.8, 0, 0); 
-                    attackConfig.range = 1.5; 
-                }
+                attackConfig.type = 'light'; attackConfig.activeFrames = 12; attackConfig.startup = 40; attackConfig.damage = 4; attackConfig.knockback = 4;
+                if (attackDirY === 1) { attackConfig.startup = 60; attackConfig.damage = 11; attackConfig.angle = 90; attackConfig.offset.set(0, 0.8, 0); attackConfig.range = 1.2; }
+                else if (attackDirY === -1) { attackConfig.angle = 30; attackConfig.offset.set(0, -1.2, 0); attackConfig.range = 1.4; }
+                else { attackConfig.angle = 60; attackConfig.offset.set(0.8, 0, 0); attackConfig.range = 1.5; }
             }
 
             if (type !== 'special') {
-                if (type === 'light' || !player.isGrounded) player.visualBody.scale.set(0.9, 1.1, 0.9);
-                else player.visualBody.scale.set(0.75, 1.3, 0.75);
+                if (type === 'light' || !player.isGrounded) player.visualPivot.scale.set(0.9, 1.1, 0.9);
+                else player.visualPivot.scale.set(0.75, 1.3, 0.75);
             }
 
             setTimeout(() => {
-                if (player.hitstun > 0 || globalHitstop > 0) return;
-                player.visualBody.scale.set(1, 1, 1);
+                if (player.hitstun > 0 || globalHitstop > 0 || !player.attacking) return;
+                
+                // Only reset scale if NOT doing down special
+                if (player.attackSubtype !== 'down-special') {
+                    player.visualPivot.scale.set(1, 1, 1);
+                }
+                
                 const isHeavyGround = (type === 'heavy' && player.isGrounded);
                 const isSpecial = (type === 'special');
                 const hitColor = isSpecial ? 0x00ff88 : (isHeavyGround ? 0xff0000 : 0xffff00);
                 
+                if (isSpecial) {
+                    if (attackDirY === 0) createSpecialVFX('neutral', player);
+                    if (attackDirY === -1) createSpecialVFX('down', player);
+                    // Up special VFX is handled separately in its specific block
+                }
+
                 if (attackConfig.isMultiHitbox) {
                     if (type === 'special' && attackDirY === -1) {
                         const sideOffsets = [0, -1.5, -3.0, 1.5, 3.0];
@@ -419,7 +506,8 @@
             }
             player.attacking = false;
             player.currentAttack = null;
-            player.visualBody.scale.set(1, 1, 1);
+            player.attackSubtype = null;
+            player.visualPivot.scale.set(1, 1, 1);
         }
 
         const worldHitboxPos = new THREE.Vector3();
@@ -462,6 +550,8 @@
             victim.hitstunMax = victim.hitstun;
             victim.isGrounded = false;
             victim.recoveryFrames = 0; 
+            victim.inFreefall = false; 
+            victim.heavyLanding = false;
             if (victim.attacking) clearAttack(victim);
             victim.visualBody.children[0].material.emissive.setHex(0xffffff);
             setTimeout(() => victim.visualBody.children[0].material.emissive.setHex(0x000000), 100);
@@ -488,7 +578,7 @@
         function handleInput() {
             if (globalHitstop > 0) return;
             players.forEach(p => {
-                if (p.attacking && p.currentAttack && p.currentAttack.type === 'special' && p.currentAttack.startup > 200) return;
+                if (p.attacking && p.attackSubtype === 'down-special') return;
                 if (p.attacking && p.isGrounded) return;
                 if (p.recoveryFrames > 0) return; 
                 let moveLeft = p.isAI ? (p.pos.x > (STAGE_WIDTH/2) || p.pos.x > 2) : keys['KeyS'];
@@ -510,13 +600,43 @@
             effects = effects.filter(fx => fx.update(dt));
             if (globalHitstop > 0) {
                 globalHitstop--;
-                players.forEach(p => { if (p.hitstun > 0 || (p.currentAttack && p.currentAttack.hasHit)) p.visualBody.position.set((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, 0); });
+                players.forEach(p => { 
+                    if (p.hitstun > 0) p.visualBody.position.y = 0.9 + (Math.random()-0.5)*0.3; 
+                    else p.visualBody.position.y = 0.9;
+                });
                 return;
             }
             players.forEach(p => {
-                p.visualBody.position.set(0, 0, 0);
-                if (p.recoveryFrames > 0) { p.recoveryFrames--; p.visualBody.scale.set(0.95, 0.9, 0.95); }
-                else if (!p.attacking) { p.visualBody.scale.set(1, 1, 1); }
+                p.visualBody.position.y = 0.9;
+                
+                // --- Visual State Handling ---
+                // PRIORITY 1: Special Attacks that force scale
+                if (p.attacking && p.attackSubtype === 'down-special') {
+                    p.visualPivot.scale.copy(DOWN_SPECIAL_SQUASH);
+                } 
+                // PRIORITY 2: Recovery / Lag States
+                else if (p.recoveryFrames > 0) { 
+                    p.recoveryFrames--; 
+                    if (p.isGrounded) {
+                        if (p.heavyLanding) {
+                            const lagColor = p.baseColor.clone().multiplyScalar(0.4);
+                            p.bodyMesh.material.color.lerp(lagColor, 0.2);
+                            p.visualPivot.scale.lerp(new THREE.Vector3(1.3, 0.7, 1.3), 0.5);
+                        } else {
+                            p.bodyMesh.material.color.lerp(p.baseColor, 0.2);
+                            p.visualPivot.scale.lerp(new THREE.Vector3(1.2, 0.8, 1.2), 0.5);
+                        }
+                    } else {
+                        p.bodyMesh.material.color.lerp(p.baseColor, 0.1);
+                        p.visualPivot.scale.lerp(new THREE.Vector3(0.85, 1.15, 0.85), 0.2);
+                    }
+                } 
+                // PRIORITY 3: Idle / Normal movement
+                else if (!p.attacking) { 
+                    p.bodyMesh.material.color.lerp(p.baseColor, 0.1);
+                    p.visualPivot.scale.lerp(new THREE.Vector3(1, 1, 1), 0.15); 
+                }
+
                 if (p.currentAttack) {
                     checkHit(p, p.currentAttack);
                     p.currentAttack.activeFrames--;
@@ -524,20 +644,44 @@
                     if (p.currentAttack.activeFrames <= 0) clearAttack(p);
                 }
                 if (p.hitstun > 0) p.hitstun--;
+                
                 p.velocity.y = Math.max(TERMINAL_VELOCITY, p.velocity.y + GRAVITY);
                 p.pos.add(p.velocity);
                 p.velocity.x *= p.isGrounded ? GROUND_FRICTION : AIR_FRICTION;
+                
                 const halfW = STAGE_WIDTH / 2;
                 if (Math.abs(p.pos.x) < halfW + 0.6) {
                     const groundLevel = 1 + (p.height / 2);
                     if (p.pos.y <= groundLevel && p.pos.y > 0 && p.velocity.y <= 0) {
-                        p.pos.y = groundLevel; p.velocity.y = 0;
-                        if (!p.isGrounded) { p.isGrounded = true; p.jumpsUsed = 0; p.specialUsed = false; if (p.recoveryFrames > 0) p.recoveryFrames = Math.max(p.recoveryFrames, 25); }
+                        const fellIntoGround = !p.isGrounded;
+                        p.pos.y = groundLevel; 
+                        p.velocity.y = 0;
+                        if (fellIntoGround) { 
+                            p.isGrounded = true; 
+                            p.jumpsUsed = 0; 
+                            p.specialUsed = false; 
+                            
+                            // LANDING LOGIC
+                            if (p.attacking && p.attackSubtype === 'down-special') {
+                                p.inFreefall = false;
+                                p.heavyLanding = false;
+                            } else if (p.inFreefall) {
+                                p.recoveryFrames = 20; 
+                                p.heavyLanding = true;
+                                p.inFreefall = false; 
+                                p.visualPivot.scale.set(1.3, 0.7, 1.3);
+                            } else {
+                                p.recoveryFrames = 0; 
+                                p.heavyLanding = false;
+                                p.visualPivot.scale.set(1.2, 0.8, 1.2); 
+                            }
+                        }
                     } else if (p.pos.y > groundLevel + 0.1) { p.isGrounded = false; }
                 } else { p.isGrounded = false; }
+                
                 if (Math.abs(p.pos.x) > BLAST_ZONE_X || Math.abs(p.pos.y) > BLAST_ZONE_Y) { createKOEffect(p.pos.clone(), p.color); respawn(p); }
                 p.mesh.position.copy(p.pos);
-                p.visualBody.rotation.y = THREE.MathUtils.lerp(p.visualBody.rotation.y, p.facing === 1 ? Math.PI/2 : -Math.PI/2, 0.2);
+                p.visualPivot.rotation.y = THREE.MathUtils.lerp(p.visualPivot.rotation.y, p.facing === 1 ? Math.PI/2 : -Math.PI/2, 0.2);
             });
         }
 
@@ -545,7 +689,9 @@
             player.pos.set(player.id === 'p1' ? -5 : 5, 12, 0);
             player.velocity.set(0, 0, 0);
             player.percent = 0; player.hitstun = 0; player.hitstunMax = 0;
-            player.jumpsUsed = 0; player.specialUsed = false; player.recoveryFrames = 0;
+            player.jumpsUsed = 0; player.specialUsed = false; 
+            player.recoveryFrames = 0; player.inFreefall = false; player.heavyLanding = false;
+            player.bodyMesh.material.color.copy(player.baseColor);
             if (player.attacking) clearAttack(player);
             document.getElementById(`${player.id}-percent`).innerText = "0%";
         }
