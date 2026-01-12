@@ -1,4 +1,16 @@
+## laps
+
+a simple stopwatch. designed specifically to record several rubik's cube solves in one session. 
+you can add names to the laps, to itemize which cubes are being solved. these can be ordered, or randomized. 
+it connects to a firestore database, so a user can enter a unique name to load account-specific history. 
+
 ## words of the day generator 
+
+### version two 
+
+working. looks at a hosted lexicon which has words intrinsically tied to the date which it will pull each day. 
+
+### verson one 
 
 not working. initially tried getting it to read from external websited but can't get it working. oops. 
 
