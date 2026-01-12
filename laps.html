@@ -14,6 +14,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <!-- Babel for JSX transformation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <style>
+        .drag-ghost {
+            opacity: 0.4;
+            border-color: #3b82f6 !important;
+            background-color: #1e293b !important;
+        }
+    </style>
 </head>
 <body class="bg-[#0f172a] text-slate-100 font-sans">
     <div id="root"></div>
@@ -26,7 +33,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const LAP_NAMES = ["gufnork", "bilby", "gwilem", "reeve", "andre", "jazz", "sadie", "echo", "skewb", "mirror"];
+        const DEFAULT_LAP_NAMES = ["gufnork", "bilby", "gwilem", "reeve", "andre", "jazz", "sadie", "echo", "skewb", "mirror"];
 
         const App = () => {
             const [config, setConfig] = useState({
@@ -43,6 +50,15 @@
             const [user, setUser] = useState(null);
             const [userKey, setUserKey] = useState(localStorage.getItem('stopwatch_user_key') || '');
             const [isKeySaved, setIsKeySaved] = useState(!!localStorage.getItem('stopwatch_user_key'));
+            
+            const [lapNames, setLapNames] = useState(() => {
+                const localLaps = localStorage.getItem('stopwatch_laps_offline');
+                return localLaps ? JSON.parse(localLaps) : DEFAULT_LAP_NAMES;
+            });
+            const [isRandomized, setIsRandomized] = useState(() => {
+                return localStorage.getItem('stopwatch_is_randomized') !== 'false';
+            });
+
             const [shuffledLaps, setShuffledLaps] = useState([]);
             const [currentIndex, setCurrentIndex] = useState(-1);
             const [totalTime, setTotalTime] = useState(0);
@@ -52,8 +68,14 @@
                 const localData = localStorage.getItem('stopwatch_history_offline');
                 return localData ? JSON.parse(localData) : [];
             });
+            
             const [isRunning, setIsRunning] = useState(false);
             const [isSyncing, setIsSyncing] = useState(false);
+            const [showSettings, setShowSettings] = useState(false);
+            const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+            // Drag and Drop State
+            const [draggedIndex, setDraggedIndex] = useState(null);
 
             const timerRef = useRef(null);
             const startTimeRef = useRef(0);
@@ -73,12 +95,9 @@
                             const externalConfig = await response.json();
                             finalConfig = { ...finalConfig, ...externalConfig };
                             setConfig(finalConfig);
-                            console.log("Configuration loaded successfully from", configPath);
-                        } else {
-                            console.warn(`Config file returned status: ${response.status}`);
                         }
                     } catch (e) {
-                        console.log("External config fetch failed. Using internal/hardcoded.");
+                        console.log("External config fetch failed.");
                     }
 
                     if (finalConfig.apiKey && finalConfig.apiKey !== "") {
@@ -99,7 +118,6 @@
                         }
                     }
                     
-                    shuffleLaps();
                     setIsCheckingConfig(false);
                 };
 
@@ -119,9 +137,19 @@
                 const unsubscribe = dbRef.current.collection('stopwatch_data').doc(cleanKey)
                     .onSnapshot((doc) => {
                         if (doc.exists) {
-                            const cloudHistory = doc.data().history || [];
-                            setHistory(cloudHistory);
-                            localStorage.setItem('stopwatch_history_offline', JSON.stringify(cloudHistory));
+                            const data = doc.data();
+                            if (data.history) {
+                                setHistory(data.history);
+                                localStorage.setItem('stopwatch_history_offline', JSON.stringify(data.history));
+                            }
+                            if (data.lapNames) {
+                                setLapNames(data.lapNames);
+                                localStorage.setItem('stopwatch_laps_offline', JSON.stringify(data.lapNames));
+                            }
+                            if (typeof data.isRandomized !== 'undefined') {
+                                setIsRandomized(data.isRandomized);
+                                localStorage.setItem('stopwatch_is_randomized', data.isRandomized);
+                            }
                         }
                         setIsSyncing(false);
                     }, (err) => {
@@ -131,7 +159,20 @@
                 return () => unsubscribe();
             }, [user, isKeySaved, userKey, isFirebaseConfigured]);
 
-            const shuffleLaps = () => setShuffledLaps([...LAP_NAMES].sort(() => Math.random() - 0.5));
+            // Prepare the sequence (shuffled or ordered)
+            useEffect(() => {
+                if (currentIndex === -1) {
+                    prepareLaps();
+                }
+            }, [lapNames, isRandomized, currentIndex]);
+
+            const prepareLaps = () => {
+                if (isRandomized) {
+                    setShuffledLaps([...lapNames].sort(() => Math.random() - 0.5));
+                } else {
+                    setShuffledLaps([...lapNames]);
+                }
+            };
 
             const formatTime = (ms) => {
                 const min = Math.floor(ms / 60000).toString().padStart(2, '0');
@@ -156,6 +197,7 @@
             };
 
             const startStopwatch = () => {
+                if (shuffledLaps.length === 0) return;
                 setIsRunning(true);
                 setCurrentIndex(0);
                 const now = Date.now();
@@ -187,7 +229,29 @@
                 setIsRunning(false);
                 const session = { id: Date.now(), date: new Date().toLocaleString(), total: totalTime, laps: finalLaps };
                 const newHistory = [session, ...history];
-                
+                saveData(newHistory, lapNames, isRandomized);
+                setCurrentIndex(-2);
+            };
+
+            const deleteHistoryEntry = (sessionId) => {
+                const newHistory = history.filter(s => s.id !== sessionId);
+                saveData(newHistory, lapNames, isRandomized);
+                setConfirmDeleteId(null);
+            };
+
+            const updateLapNames = (newLapNames) => {
+                setLapNames(newLapNames);
+                localStorage.setItem('stopwatch_laps_offline', JSON.stringify(newLapNames));
+                saveData(history, newLapNames, isRandomized);
+            };
+
+            const toggleRandomized = (val) => {
+                setIsRandomized(val);
+                localStorage.setItem('stopwatch_is_randomized', val);
+                saveData(history, lapNames, val);
+            };
+
+            const saveData = async (newHistory, currentLaps, currentRandomSetting) => {
                 setHistory(newHistory);
                 localStorage.setItem('stopwatch_history_offline', JSON.stringify(newHistory));
 
@@ -195,13 +259,16 @@
                     setIsSyncing(true);
                     const cleanKey = userKey.toLowerCase().trim().replace(/[^a-z0-9]/g, '_');
                     try {
-                        await dbRef.current.collection('stopwatch_data').doc(cleanKey).set({ history: newHistory });
+                        await dbRef.current.collection('stopwatch_data').doc(cleanKey).set({ 
+                            history: newHistory,
+                            lapNames: currentLaps,
+                            isRandomized: currentRandomSetting
+                        }, { merge: true });
                     } catch (e) {
                         console.error("Cloud save failed", e);
                     }
                     setIsSyncing(false);
                 }
-                setCurrentIndex(-2);
             };
 
             const resetAll = () => {
@@ -211,12 +278,42 @@
                 setLapTime(0);
                 setCompletedLaps([]);
                 setCurrentIndex(-1);
-                shuffleLaps();
+                prepareLaps();
+            };
+
+            // Enhanced Drag and Drop Logic
+            const onDragStart = (e, index) => {
+                setDraggedIndex(index);
+                e.dataTransfer.effectAllowed = "move";
+                // Set a small delay for the ghost image class
+                setTimeout(() => {
+                    e.target.classList.add("drag-ghost");
+                }, 0);
+            };
+
+            const onDragEnter = (e, targetIndex) => {
+                e.preventDefault();
+                if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+                const newList = [...lapNames];
+                const draggedItem = newList[draggedIndex];
+                
+                // Remove the item from its old position and insert it into the new one
+                newList.splice(draggedIndex, 1);
+                newList.splice(targetIndex, 0, draggedItem);
+                
+                setDraggedIndex(targetIndex);
+                updateLapNames(newList);
+            };
+
+            const onDragEnd = (e) => {
+                e.target.classList.remove("drag-ghost");
+                setDraggedIndex(null);
             };
 
             useEffect(() => {
                 const handleKey = (e) => {
-                    if (e.code === 'Space') {
+                    if (e.code === 'Space' && !showSettings && !confirmDeleteId) {
                         e.preventDefault();
                         if (!isRunning && currentIndex === -1) startStopwatch();
                         else if (isRunning) nextLap();
@@ -224,11 +321,7 @@
                 };
                 window.addEventListener('keydown', handleKey);
                 return () => window.removeEventListener('keydown', handleKey);
-            }, [isRunning, currentIndex, shuffledLaps, lapTime]);
-
-            if (isCheckingConfig) {
-                return <div className="min-h-screen flex items-center justify-center text-slate-500 font-mono text-xs uppercase tracking-widest">Initializing...</div>;
-            }
+            }, [isRunning, currentIndex, shuffledLaps, lapTime, showSettings, confirmDeleteId]);
 
             return (
                 <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
@@ -236,9 +329,7 @@
                         
                         {!isFirebaseConfigured && (
                             <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center">
-                                <p className="text-amber-400 text-xs font-bold uppercase tracking-widest">
-                                    Offline Preview Mode (firebase-config.json not detected)
-                                </p>
+                                <p className="text-amber-400 text-xs font-bold uppercase tracking-widest">Offline Mode</p>
                             </div>
                         )}
 
@@ -250,63 +341,68 @@
                                         <input 
                                             value={userKey} 
                                             onChange={e => setUserKey(e.target.value)}
-                                            placeholder="Enter Key (e.g. jam)"
+                                            placeholder="Enter Key"
                                             className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1 text-sm focus:outline-none"
                                         />
                                         <button onClick={handleSaveKey} className="bg-blue-600 px-4 py-1 rounded-lg text-xs font-bold">SAVE</button>
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 text-sm">
                                         <span className="font-bold">User: <span className="text-blue-400">{userKey}</span></span>
-                                        <button onClick={handleClearKey} className="text-[10px] text-slate-500 uppercase">Change</button>
+                                        <button onClick={handleClearKey} className="text-[10px] text-slate-500 uppercase hover:text-slate-300">Change</button>
                                     </div>
                                 )}
                             </div>
-                            <div className="text-[10px] font-bold uppercase tracking-tighter">
-                                {isSyncing ? <span className="text-blue-400">Syncing...</span> : 
-                                 (isKeySaved && isFirebaseConfigured) ? <span className="text-emerald-400">Cloud Active</span> : 
-                                 <span className="text-slate-500">Local Only</span>}
+                            <div className="flex items-center gap-4">
+                                <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-white transition-colors" title="Settings">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                                </button>
+                                <div className="text-[10px] font-bold uppercase tracking-tighter">
+                                    {isSyncing ? <span className="text-blue-400">Syncing...</span> : 
+                                     (isKeySaved && isFirebaseConfigured) ? <span className="text-emerald-400">Cloud Active</span> : 
+                                     <span className="text-slate-500">Local</span>}
+                                </div>
                             </div>
                         </div>
 
                         {/* Stopwatch */}
                         <div className="bg-[#1e293b] rounded-[3rem] p-12 text-center border border-slate-800 shadow-2xl relative overflow-hidden">
                              <div className="relative z-10">
-                                <h2 className="text-7xl md:text-9xl font-black uppercase mb-8 text-white">
+                                <h2 className="text-5xl md:text-8xl font-black uppercase mb-8 text-white min-h-[1.2em]">
                                     {currentIndex >= 0 && currentIndex < shuffledLaps.length ? shuffledLaps[currentIndex] : currentIndex === -2 ? "Done" : "Ready"}
                                 </h2>
                                 <div className="text-6xl md:text-8xl font-mono font-bold text-blue-400 mb-2">{formatTime(lapTime)}</div>
                                 <div className="text-slate-500 font-mono mb-10">Total: {formatTime(totalTime)}</div>
                                 
                                 <div className="flex justify-center gap-4">
-                                    {currentIndex === -1 && <button onClick={startStopwatch} className="bg-blue-600 px-12 py-4 rounded-2xl font-black text-xl">START</button>}
-                                    {isRunning && <button onClick={nextLap} className="bg-emerald-600 px-12 py-4 rounded-2xl font-black text-xl">NEXT LAP</button>}
-                                    {currentIndex === -2 && <button onClick={resetAll} className="bg-slate-700 px-12 py-4 rounded-2xl font-black text-xl">RESET</button>}
+                                    {currentIndex === -1 && (
+                                        <button onClick={startStopwatch} disabled={lapNames.length === 0} className="bg-blue-600 disabled:opacity-50 px-12 py-4 rounded-2xl font-black text-xl hover:bg-blue-500 transition-colors shadow-lg shadow-blue-500/20">START</button>
+                                    )}
+                                    {isRunning && <button onClick={nextLap} className="bg-emerald-600 px-12 py-4 rounded-2xl font-black text-xl hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-500/20">NEXT LAP</button>}
+                                    {currentIndex === -2 && <button onClick={resetAll} className="bg-slate-700 px-12 py-4 rounded-2xl font-black text-xl hover:bg-slate-600 transition-colors">RESET</button>}
                                 </div>
                              </div>
                         </div>
 
                         {/* History */}
                         <div className="bg-[#1e293b] rounded-3xl border border-slate-800 overflow-hidden">
-                            <div className="p-6 border-b border-slate-800 font-bold uppercase text-xs tracking-widest text-slate-400 flex justify-between items-center">
-                                <span>History</span>
-                                {!isFirebaseConfigured && <span className="text-[10px] text-amber-500/50">Saving to Browser Memory</span>}
-                            </div>
+                            <div className="p-6 border-b border-slate-800 font-bold uppercase text-xs tracking-widest text-slate-400">History</div>
                             <div className="divide-y divide-slate-800">
                                 {history.length === 0 ? (
                                     <div className="p-10 text-center text-slate-600 italic text-sm">No history yet.</div>
                                 ) : (
                                     history.map(session => (
-                                        <div key={session.id} className="p-6 bg-slate-900/20">
-                                            <div className="flex justify-between items-end mb-4">
-                                                <div>
-                                                    <div className="text-[10px] text-slate-500 font-bold mb-1">{session.date}</div>
-                                                    <div className="text-2xl font-black font-mono">{formatTime(session.total)}</div>
-                                                </div>
+                                        <div key={session.id} className="p-6 bg-slate-900/20 relative group">
+                                            <button onClick={() => setConfirmDeleteId(session.id)} className="absolute top-6 right-6 p-2 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                                            </button>
+                                            <div>
+                                                <div className="text-[10px] text-slate-500 font-bold mb-1 uppercase tracking-wider">{session.date}</div>
+                                                <div className="text-2xl font-black font-mono mb-4 tracking-tighter">{formatTime(session.total)}</div>
                                             </div>
-                                            <div className="flex flex-wrap gap-2">
+                                            <div className="flex flex-wrap gap-2 pr-8">
                                                 {session.laps.map((l, i) => (
-                                                    <div key={i} className="bg-slate-800/50 p-2 rounded-lg border border-slate-700/50">
+                                                    <div key={i} className="bg-slate-800/40 p-2 rounded-lg border border-slate-700/50">
                                                         <div className="text-[8px] uppercase text-slate-500 font-black">{l.name}</div>
                                                         <div className="text-xs font-mono font-bold">{formatTime(l.time)}</div>
                                                     </div>
@@ -318,6 +414,87 @@
                             </div>
                         </div>
                     </div>
+
+                    {/* Settings Modal */}
+                    {showSettings && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-[#1e293b] w-full max-w-md rounded-3xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                                <div className="p-6 border-b border-slate-800">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-black uppercase tracking-widest text-lg">Lap Settings</h3>
+                                        <button onClick={() => setShowSettings(false)} className="text-slate-500 hover:text-white text-2xl">&times;</button>
+                                    </div>
+                                    <div className="flex justify-between items-center bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                                        <span className="text-sm font-bold uppercase tracking-wide text-slate-300">Randomize Order</span>
+                                        <label className="flex items-center cursor-pointer group">
+                                            <div className={`w-10 h-6 rounded-full transition-colors relative ${isRandomized ? 'bg-blue-600' : 'bg-slate-700'}`}>
+                                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${isRandomized ? 'left-5' : 'left-1'}`} />
+                                                <input type="checkbox" className="hidden" checked={isRandomized} onChange={e => toggleRandomized(e.target.checked)} />
+                                            </div>
+                                        </label>
+                                    </div>
+                                    {!isRandomized && (
+                                        <p className="mt-4 text-[10px] uppercase text-blue-400 font-black tracking-widest text-center">Drag items to reorder</p>
+                                    )}
+                                </div>
+                                
+                                <div className="p-6 overflow-y-auto flex-1 space-y-2">
+                                    {lapNames.map((name, i) => (
+                                        <div 
+                                            key={i} 
+                                            draggable={!isRandomized}
+                                            onDragStart={(e) => onDragStart(e, i)}
+                                            onDragOver={(e) => e.preventDefault()}
+                                            onDragEnter={(e) => onDragEnter(e, i)}
+                                            onDragEnd={onDragEnd}
+                                            className={`flex gap-2 items-center bg-slate-900/80 p-1 pl-3 rounded-xl border transition-all ${draggedIndex === i ? 'opacity-20 border-blue-500 scale-95' : 'border-slate-800 opacity-100'} ${!isRandomized ? 'cursor-grab active:cursor-grabbing touch-none' : ''}`}
+                                        >
+                                            {!isRandomized && (
+                                                <div className="text-slate-600 mr-2 pointer-events-none">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+                                                </div>
+                                            )}
+                                            <input 
+                                                className="bg-transparent text-sm flex-1 focus:outline-none py-2"
+                                                value={name}
+                                                onChange={(e) => {
+                                                    const newList = [...lapNames];
+                                                    newList[i] = e.target.value;
+                                                    updateLapNames(newList);
+                                                }}
+                                            />
+                                            <button onClick={() => updateLapNames(lapNames.filter((_, idx) => idx !== i))} className="text-slate-700 hover:text-red-400 p-2">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <button 
+                                        onClick={() => updateLapNames([...lapNames, "New Lap"])}
+                                        className="w-full py-4 rounded-xl border-2 border-dashed border-slate-700 text-slate-500 text-xs font-bold uppercase hover:border-blue-500 hover:text-blue-400 transition-all"
+                                    >
+                                        + Add Name
+                                    </button>
+                                </div>
+                                <div className="p-4 bg-slate-900/50">
+                                    <button onClick={() => setShowSettings(false)} className="bg-blue-600 w-full py-3 rounded-xl font-bold uppercase text-sm hover:bg-blue-500 transition-colors">Done</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Delete Confirmation Modal */}
+                    {confirmDeleteId && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                            <div className="bg-[#1e293b] w-full max-w-sm rounded-3xl border border-slate-700 p-8 text-center space-y-6">
+                                <h3 className="text-xl font-black uppercase tracking-tight">Delete Record?</h3>
+                                <p className="text-slate-400 text-sm">This will permanently remove this session from your history.</p>
+                                <div className="flex gap-4">
+                                    <button onClick={() => setConfirmDeleteId(null)} className="flex-1 py-3 bg-slate-800 rounded-xl font-bold uppercase text-xs">Cancel</button>
+                                    <button onClick={() => deleteHistoryEntry(confirmDeleteId)} className="flex-1 py-3 bg-red-600 rounded-xl font-bold uppercase text-xs shadow-lg shadow-red-600/20">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
