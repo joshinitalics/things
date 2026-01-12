@@ -1,3 +1,7 @@
+# things
+
+a collection of little apps i've put together using Gemini. all just for recreation. 
+
 ## laps
 
 a simple stopwatch. designed specifically to record several rubik's cube solves in one session. 
