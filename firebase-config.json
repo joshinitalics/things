@@ -1,9 +1,9 @@
 {
-  apiKey: "AIzaSyDzNVpldJMrA5tYWXj1zkJK3tCZz7PeDcQ",
-  authDomain: "jam-laps.firebaseapp.com",
-  projectId: "jam-laps",
-  storageBucket: "jam-laps.firebasestorage.app",
-  messagingSenderId: "890844436057",
-  appId: "1:890844436057:web:03b105ead8d4153d898348",
-  measurementId: "G-ECDRZJ1EGN"
-};
+  "apiKey": "AIzaSyDzNVpldJMrA5tYWXj1zkJK3tCZz7PeDcQ",
+  "authDomain": "jam-laps.firebaseapp.com",
+  "projectId": "jam-laps",
+  "storageBucket": "jam-laps.firebasestorage.app",
+  "messagingSenderId": "890844436057",
+  "appId": "1:890844436057:web:03b105ead8d4153d898348",
+  "measurementId": "G-ECDRZJ1EGN"
+}
